@@ -457,6 +457,50 @@ def get_supabase():
 
 supabase = get_supabase()
 
+# -----------------------------
+# Simple access gate
+# -----------------------------
+def login_gate():
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+
+    if st.session_state.logged_in:
+        return
+
+    st.markdown("""
+    <div class="app-shell">
+        <div class="app-brand-row">
+            <div class="brand-left">
+                <div class="brand-icon">🧰</div>
+                <div>
+                    <div class="brand-title">Lab Inventory System</div>
+                    <div class="brand-subtitle">Please enter the lab access code to continue</div>
+                </div>
+            </div>
+            <div class="brand-badge">Private Access</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1.1, 1])
+
+    with col2:
+        with st.container(border=True):
+            st.subheader("Lab Access")
+            password = st.text_input("Access Code", type="password")
+
+            if st.button("Enter", type="primary", use_container_width=True):
+                if password == st.secrets["LAB_PASSWORD"]:
+                    st.session_state.logged_in = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect access code")
+
+    st.stop()
+
+
+login_gate()
+
 
 # -----------------------------
 # Session defaults
