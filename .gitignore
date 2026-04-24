@@ -6,3 +6,4 @@ __pycache__/
 
 # Do not upload secrets
 .streamlit/secrets.toml
+app_mvp_v1.py
