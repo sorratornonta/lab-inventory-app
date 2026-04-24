@@ -737,20 +737,28 @@ def holder_name_from_asset(asset, people_dict, location_dict):
         location_dict
     )
 
-
-def group_assets_by_prefix(assets):
+def group_assets_by_equipment_name(assets):
     groups = defaultdict(list)
 
     for asset in assets:
         eq = asset.get("equipment_types") or {}
-        prefix = get_prefix(asset.get("asset_code", ""))
-        equipment_name = eq.get("name", "")
-        category = eq.get("category", "")
-        key = (prefix, equipment_name, category)
+
+        equipment_name = (eq.get("name") or "Unnamed Equipment").strip()
+        category = (eq.get("category") or "No category").strip()
+
+        # Normalize for grouping:
+        # Same name + same category will be grouped together,
+        # even if owner, prefix, or equipment_type_id are different.
+        group_name = equipment_name.lower()
+        group_category = category.lower()
+
+        key = (group_name, group_category, equipment_name, category)
         groups[key].append(asset)
 
-    return sorted(groups.items(), key=lambda item: (item[0][1], item[0][0]))
-
+    return sorted(
+        groups.items(),
+        key=lambda item: (item[0][2], item[0][3])
+    )
 
 def build_asset_dataframe(assets, people, locations):
     people_dict = {p["id"]: p["name"] for p in people}
@@ -934,7 +942,7 @@ def render_selected_summary(selected_ids, asset_lookup, title="Current Selection
 
 
 def render_group_cards(assets, selection_key, dialog_mode, people, locations):
-    grouped_assets = group_assets_by_prefix(assets)
+    grouped_assets = grouped_assets = group_assets_by_equipment_name(assets)
 
     if not grouped_assets:
         st.info("No assets found.")
@@ -945,12 +953,28 @@ def render_group_cards(assets, selection_key, dialog_mode, people, locations):
     for i in range(0, len(grouped_assets), 3):
         cols = st.columns(3)
 
-        for col, ((prefix, equipment_name, category), group_items) in zip(cols, grouped_assets[i:i + 3]):
+        for col, ((_,_, equipment_name, category), group_items) in zip(cols, grouped_assets[i:i + 3]):
             eq = group_items[0].get("equipment_types") or {}
             image_data = eq.get("image_data")
             group_ids = [item["id"] for item in group_items]
             selected_count = len([asset_id for asset_id in group_ids if asset_id in selected])
             selected_class = "status-borrowed" if selected_count > 0 else ""
+           
+            prefixes = sorted(
+                set(get_prefix(item.get("asset_code", "")) for item in group_items)
+            )
+
+            owners = sorted(
+                set((item.get("owner") or "Unknown") for item in group_items)
+            )
+
+            prefix_text = ", ".join(prefixes[:3])
+            if len(prefixes) > 3:
+                prefix_text += f" +{len(prefixes) - 3}"
+
+            owner_text = ", ".join(owners[:2])
+            if len(owners) > 2:
+                owner_text += f" +{len(owners) - 2}"
 
             with col:
                 with st.container(border=True):
@@ -965,7 +989,12 @@ def render_group_cards(assets, selection_key, dialog_mode, people, locations):
                             unsafe_allow_html=True
                         )
                         st.markdown(
-                            f"<div class='group-subtitle'>Prefix: {escape(prefix)}</div>",
+                            f"<div class='group-subtitle'>Owner: {escape(owner_text)}</div>",
+                            unsafe_allow_html=True
+                        )
+
+                        st.markdown(
+                            f"<div class='group-subtitle'>Prefix: {escape(prefix_text)}</div>",
                             unsafe_allow_html=True
                         )
                         st.markdown(
@@ -983,14 +1012,15 @@ def render_group_cards(assets, selection_key, dialog_mode, people, locations):
 
                     if st.button(
                         button_label,
-                        key=f"{dialog_mode}_open_{prefix}_{equipment_name}_{i}",
+                        key=f"{dialog_mode}_open_{equipment_name}_{category}_{i}",
                         use_container_width=True,
                         type="primary" if selected_count > 0 else "secondary"
                     ):
+                        
                         asset_group_dialog(
                             group_items=group_items,
                             selection_key=selection_key,
-                            title=f"{equipment_name or prefix} ({prefix})",
+                            title=f"{equipment_name}",
                             people=people,
                             locations=locations
                         )
@@ -1032,7 +1062,9 @@ def asset_group_dialog(group_items, selection_key, title, people, locations):
         label_to_id = {}
 
         for asset in assets_in_holder:
-            label = asset.get("asset_code", f"Asset {asset['id']}")
+            asset_code = asset.get("asset_code", f"Asset {asset['id']}")
+            owner = asset.get("owner") or "Unknown owner"
+            label = f"{asset_code} | Owner: {owner}"
             option_labels.append(label)
             label_to_id[label] = asset["id"]
 
