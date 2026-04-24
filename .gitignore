@@ -1,0 +1,8 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Do not upload secrets
+.streamlit/secrets.toml
