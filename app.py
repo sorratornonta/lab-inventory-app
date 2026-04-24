@@ -33,9 +33,17 @@ st.markdown("""
         color: #0f172a !important;
     }
 
+    header[data-testid="stHeader"] {
+    background: transparent !important;
+    height: 0rem !important;
+    }
+
+div[data-testid="stToolbar"] {
+    display: none !important;
+    }
     .block-container {
         max-width: 1320px;
-        padding-top: 1.2rem;
+        padding-top: 2.2rem !important;
         padding-bottom: 3rem;
     }
 
@@ -61,7 +69,9 @@ st.markdown("""
         border-radius: 22px;
         padding: 1.15rem 1.35rem;
         box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+        margin-top: 0.4rem;
         margin-bottom: 1rem;
+        overflow: visible !important;
     }
 
     .app-brand-row {
@@ -275,6 +285,68 @@ st.markdown("""
     /* =============================
        PILLS
     ============================= */
+    .current-label {
+        margin-top: 0.7rem;
+        margin-bottom: 0.4rem;
+        color: #64748b !important;
+        font-size: 0.76rem;
+        font-weight: 850;
+        text-transform: uppercase;
+        letter-spacing: 0.045em;
+    }
+
+    .holder-badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 0.15rem;
+        margin-bottom: 0.25rem;
+        max-width: 100%;
+    }
+
+    .holder-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.34rem 0.68rem;
+        border-radius: 999px;
+        font-size: 0.84rem;
+        font-weight: 850;
+        border: 1px solid #cbd5e1;
+        background: #f8fafc !important;
+        color: #0f172a !important;
+        white-space: nowrap;
+        line-height: 1.2;
+    }
+
+    .holder-location {
+        background: #ecfdf5 !important;
+        border-color: #a7f3d0 !important;
+        color: #065f46 !important;
+    }
+
+    .holder-person {
+        background: #fff7ed !important;
+        border-color: #fed7aa !important;
+        color: #9a3412 !important;
+    }
+
+    .inventory-card-inner {
+        padding-top: 0.15rem;
+        padding-bottom: 0.35rem;
+    }
+
+    .inventory-stat-box {
+        display: flex;
+        flex-direction: column;
+        gap: 0.42rem;
+        align-items: flex-start;
+        padding-top: 0.25rem;
+    }
+
+    .inventory-stat-box .pill-dark {
+        margin-top: 0 !important;
+    }
+
     .pill {
         display: inline-block;
         padding: 0.28rem 0.65rem;
@@ -354,6 +426,29 @@ st.markdown("""
         margin-bottom: 0.6rem;
         font-weight: 900;
         color: #1e3a8a !important;
+    }
+
+    .location-section-title {
+    margin-top: 0.8rem;
+    margin-bottom: 0.8rem;
+    padding: 0.75rem 0.95rem;
+    border-radius: 16px;
+    background: #eff6ff !important;
+    border: 1px solid #bfdbfe;
+    color: #1e3a8a !important;
+    font-size: 1.08rem;
+    font-weight: 900;
+    }
+
+    .location-item-card {
+        margin-bottom: 0.55rem;
+    }
+
+    .location-meta {
+        color: #64748b !important;
+        font-size: 0.86rem;
+        font-weight: 700;
+        margin-top: 0.15rem;
     }
 
     /* =============================
@@ -460,6 +555,9 @@ supabase = get_supabase()
 # -----------------------------
 # Simple access gate
 # -----------------------------
+# -----------------------------
+# Simple access gate
+# -----------------------------
 def login_gate():
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
@@ -487,17 +585,32 @@ def login_gate():
     with col2:
         with st.container(border=True):
             st.subheader("Lab Access")
-            password = st.text_input("Access Code", type="password")
 
-            if st.button("Enter", type="primary", use_container_width=True):
-                if password == st.secrets["LAB_PASSWORD"]:
+            with st.form("login_form", clear_on_submit=False):
+                password = st.text_input(
+                    "Access Code",
+                    type="password",
+                    placeholder="Enter lab access code"
+                )
+
+                submitted = st.form_submit_button(
+                    "Enter",
+                    type="primary",
+                    use_container_width=True
+                )
+
+            if submitted:
+                expected_password = st.secrets.get("LAB_PASSWORD", "").strip()
+
+                if not expected_password:
+                    st.error("LAB_PASSWORD is not set in Streamlit Secrets.")
+                elif password.strip() == expected_password:
                     st.session_state.logged_in = True
                     st.rerun()
                 else:
                     st.error("Incorrect access code")
 
     st.stop()
-
 
 login_gate()
 
@@ -513,6 +626,9 @@ if "checkout_selected_ids" not in st.session_state:
 
 if "return_selected_ids" not in st.session_state:
     st.session_state.return_selected_ids = []
+
+if "move_selected_ids" not in st.session_state:
+    st.session_state.move_selected_ids = []
 
 if "add_form_version" not in st.session_state:
     st.session_state.add_form_version = 0
@@ -583,6 +699,34 @@ def get_available_assets():
         or []
     )
 
+def get_available_assets_by_location(location_id):
+    return (
+        supabase.table("assets")
+        .select("*, equipment_types(name, category, image_data)")
+        .eq("active", True)
+        .eq("status", "available")
+        .eq("current_holder_type", "location")
+        .eq("current_holder_id", location_id)
+        .order("asset_code")
+        .execute()
+        .data
+        or []
+    )
+
+
+
+def get_assets_by_holder(holder_type, holder_id):
+    return (
+        supabase.table("assets")
+        .select("*, equipment_types(name, category, image_data)")
+        .eq("active", True)
+        .eq("current_holder_type", holder_type)
+        .eq("current_holder_id", holder_id)
+        .order("asset_code")
+        .execute()
+        .data
+        or []
+    )
 
 def get_borrowed_assets_by_person(person_id):
     return (
@@ -760,6 +904,7 @@ def group_assets_by_equipment_name(assets):
         key=lambda item: (item[0][2], item[0][3])
     )
 
+
 def build_asset_dataframe(assets, people, locations):
     people_dict = {p["id"]: p["name"] for p in people}
     location_dict = {l["id"]: l["name"] for l in locations}
@@ -774,12 +919,55 @@ def build_asset_dataframe(assets, people, locations):
             "Equipment": eq.get("name", ""),
             "Category": eq.get("category", ""),
             "Owner": a.get("owner", ""),
-            "Status": a.get("status", ""),
             "Current Holder": holder_name_from_asset(a, people_dict, location_dict),
+            "Holder Type": a.get("current_holder_type", ""),
             "Note": a.get("note", "")
         })
 
     return pd.DataFrame(rows)
+
+def build_location_inventory_table(assets, people, locations):
+    if not assets:
+        return pd.DataFrame()
+
+    people_dict = {p["id"]: p["name"] for p in people}
+    location_dict = {l["id"]: l["name"] for l in locations}
+
+    rows = []
+
+    for asset in assets:
+        eq = asset.get("equipment_types") or {}
+
+        current_holder = holder_name_from_asset(
+            asset,
+            people_dict,
+            location_dict
+        )
+
+        rows.append({
+            "Location / Holder": current_holder,
+            "Equipment": eq.get("name", "Unnamed Equipment"),
+            "Category": eq.get("category", "Uncategorized"),
+            "Status": asset.get("status", ""),
+            "Quantity": 1,
+        })
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return df
+
+    summary = (
+        df.groupby(
+            ["Location / Holder", "Category", "Equipment", "Status"],
+            dropna=False
+        )["Quantity"]
+        .sum()
+        .reset_index()
+        .sort_values(["Location / Holder", "Category", "Equipment", "Status"])
+    )
+
+    return summary
 
 
 def render_clean_table(df, empty_message="No data available."):
@@ -832,9 +1020,221 @@ def go_to_dashboard_with_message(message):
     st.rerun()
 
 
-def reset_add_equipment_form():
-    st.session_state.add_form_version += 1
+def render_inventory_by_location_view(assets, people, locations):
+    if not assets:
+        st.info("No equipment in the system yet.")
+        return
 
+    people_dict = {p["id"]: p["name"] for p in people}
+    location_dict = {l["id"]: l["name"] for l in locations}
+
+    grouped = {}
+
+    for asset in assets:
+        eq = asset.get("equipment_types") or {}
+
+        holder = holder_name_from_asset(asset, people_dict, location_dict)
+        holder_type = asset.get("current_holder_type", "")
+
+        equipment_name = (eq.get("name") or "Unnamed Equipment").strip()
+        category = (eq.get("category") or "Uncategorized").strip()
+        image_data = eq.get("image_data")
+        owner = asset.get("owner") or "Unknown"
+
+        key = (holder, holder_type, category, equipment_name)
+
+        if key not in grouped:
+            grouped[key] = {
+                "holder": holder,
+                "holder_type": holder_type,
+                "category": category,
+                "equipment": equipment_name,
+                "image_data": image_data,
+                "total": 0,
+                "owners": set(),
+                "asset_codes": [],
+            }
+
+        grouped[key]["total"] += 1
+        grouped[key]["owners"].add(owner)
+        grouped[key]["asset_codes"].append(asset.get("asset_code", ""))
+
+    holders = sorted(
+        set((item["holder"], item["holder_type"]) for item in grouped.values()),
+        key=lambda x: (x[1] != "location", x[0])
+    )
+
+    for holder, holder_type in holders:
+        items = [
+            item for item in grouped.values()
+            if item["holder"] == holder and item["holder_type"] == holder_type
+        ]
+
+        if not items:
+            continue
+
+        holder_label = holder
+        if holder_type == "person":
+            holder_label = f"{holder} — Person"
+        elif holder_type == "location":
+            holder_label = f"{holder} — Location"
+
+        st.markdown(
+            f"<div class='location-section-title'>{escape(holder_label)}</div>",
+            unsafe_allow_html=True
+        )
+
+        items = sorted(items, key=lambda x: (x["category"], x["equipment"]))
+
+        for item in items:
+            with st.container(border=True):
+                col_img, col_main, col_stats = st.columns([0.55, 3.4, 1.05])
+
+                with col_img:
+                    render_image(item["image_data"], width=68)
+
+                with col_main:
+                    st.markdown(
+                        f"<div class='group-title'>{escape(item['equipment'])}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                    st.markdown(
+                        f"<span class='pill'>{escape(item['category'])}</span>",
+                        unsafe_allow_html=True
+                    )
+
+                    owner_text = ", ".join(sorted(item["owners"]))
+                    st.markdown(
+                        f"<div class='location-meta'>Owner: {escape(owner_text)}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                    asset_codes = sorted([code for code in item["asset_codes"] if code])
+                    preview_codes = ", ".join(asset_codes[:6])
+
+                    if len(asset_codes) > 6:
+                        preview_codes += f" +{len(asset_codes) - 6}"
+
+                    if preview_codes:
+                        st.markdown(
+                            f"<div class='location-meta'>Assets: {escape(preview_codes)}</div>",
+                            unsafe_allow_html=True
+                        )
+
+                with col_stats:
+                    st.markdown(
+                        f"<span class='pill-dark'>Total {item['total']}</span>",
+                        unsafe_allow_html=True
+                    )
+
+
+def render_inventory_category_view(assets, people, locations):
+    if not assets:
+        st.info("No equipment in the system yet.")
+        return
+
+    people_dict = {p["id"]: p["name"] for p in people}
+    location_dict = {l["id"]: l["name"] for l in locations}
+
+    grouped = {}
+
+    for asset in assets:
+        eq = asset.get("equipment_types") or {}
+
+        equipment_name = (eq.get("name") or "Unnamed Equipment").strip()
+        category = (eq.get("category") or "Uncategorized").strip()
+        image_data = eq.get("image_data")
+        holder = holder_name_from_asset(asset, people_dict, location_dict)
+        holder_type = asset.get("current_holder_type", "")
+
+        key = (category, equipment_name)
+
+        if key not in grouped:
+            grouped[key] = {
+                "category": category,
+                "equipment": equipment_name,
+                "image_data": image_data,
+                "total": 0,
+                "holders": {},
+                "holder_types": {},
+                "owners": set(),
+            }
+
+        grouped[key]["total"] += 1
+        grouped[key]["holders"][holder] = grouped[key]["holders"].get(holder, 0) + 1
+        grouped[key]["holder_types"][holder] = holder_type
+        grouped[key]["owners"].add(asset.get("owner") or "Unknown")
+
+    categories = sorted(set(item["category"] for item in grouped.values()))
+
+    for category in categories:
+        st.markdown(f"### {category}")
+
+        items = [
+            item for item in grouped.values()
+            if item["category"] == category
+        ]
+
+        items = sorted(items, key=lambda x: x["equipment"])
+
+        for item in items:
+            with st.container(border=True):
+                st.markdown("<div class='inventory-card-inner'>", unsafe_allow_html=True)
+
+                col_img, col_main, col_stats = st.columns([0.55, 3.4, 1.05])
+
+                with col_img:
+                    render_image(item["image_data"], width=74)
+
+                with col_main:
+                    st.markdown(
+                        f"<div class='group-title'>{escape(item['equipment'])}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                    owner_text = ", ".join(sorted(item["owners"]))
+                    st.markdown(
+                        f"<div class='group-subtitle'>Owner: {escape(owner_text)}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                    st.markdown(
+                        "<div class='current-label'>Current location / holder</div>",
+                        unsafe_allow_html=True
+                    )
+
+                    holder_badges = ""
+
+                    for holder, count in sorted(item["holders"].items()):
+                        holder_safe = escape(holder)
+                        holder_type = item["holder_types"].get(holder, "")
+
+                        if holder_type == "person":
+                            badge_class = "holder-badge holder-person"
+                        else:
+                            badge_class = "holder-badge holder-location"
+
+                        holder_badges += (
+                            f"<span class='{badge_class}'>{holder_safe} × {count}</span>"
+                        )
+
+                    st.markdown(
+                        f"<div class='holder-badge-row'>{holder_badges}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                with col_stats:
+                    st.markdown(
+                        f"""
+                        <div class="inventory-stat-box">
+                            <span class="pill-dark">Total {item['total']}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                st.markdown("</div>", unsafe_allow_html=True)
 
 def render_header():
     st.markdown("""
@@ -853,11 +1253,11 @@ def render_header():
     """, unsafe_allow_html=True)
 
 
+
 def render_navigation():
     nav_items = [
         "Dashboard",
-        "Checkout",
-        "Return",
+        "Move Items",
         "Equipment",
         "People & Locations",
         "Movement Log",
@@ -880,7 +1280,6 @@ def render_navigation():
             st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
-
 
 def page_header(title, description, icon=""):
     st.markdown(
@@ -942,7 +1341,7 @@ def render_selected_summary(selected_ids, asset_lookup, title="Current Selection
 
 
 def render_group_cards(assets, selection_key, dialog_mode, people, locations):
-    grouped_assets = grouped_assets = group_assets_by_equipment_name(assets)
+    grouped_assets = group_assets_by_equipment_name(assets)
 
     if not grouped_assets:
         st.info("No assets found.")
@@ -958,7 +1357,7 @@ def render_group_cards(assets, selection_key, dialog_mode, people, locations):
             image_data = eq.get("image_data")
             group_ids = [item["id"] for item in group_items]
             selected_count = len([asset_id for asset_id in group_ids if asset_id in selected])
-            selected_class = "status-borrowed" if selected_count > 0 else ""
+            selected_class = "status-held" if selected_count > 0 else ""
            
             prefixes = sorted(
                 set(get_prefix(item.get("asset_code", "")) for item in group_items)
@@ -1000,7 +1399,7 @@ def render_group_cards(assets, selection_key, dialog_mode, people, locations):
                         st.markdown(
                             f"""
                             <span class="pill">{escape(category or "No category")}</span>
-                            <span class="pill-dark">{len(group_items)} available</span>
+                            <span class="pill-dark">{len(group_items)} item(s)</span>
                             <span class="pill-dark {selected_class}">{selected_count} selected</span>
                             """,
                             unsafe_allow_html=True
@@ -1170,7 +1569,6 @@ def checkout_confirm_dialog(selected_asset_ids, asset_lookup, borrower_name, bor
                 supabase.table("assets").update({
                     "current_holder_type": "person",
                     "current_holder_id": borrower_id,
-                    "status": "borrowed"
                 }).eq("id", asset["id"]).execute()
 
                 create_movement_log(
@@ -1292,6 +1690,111 @@ def return_confirm_dialog(selected_asset_ids, asset_lookup, person_name, person_
         if st.button("Cancel", use_container_width=True):
             st.rerun()
 
+
+
+@st.dialog("Confirm move")
+def move_confirm_dialog(
+    selected_asset_ids,
+    asset_lookup,
+    from_holder_label,
+    from_holder_type,
+    from_holder_id,
+    to_holder_label,
+    to_holder_type,
+    to_holder_id,
+    note
+):
+    selected_assets = [
+        asset_lookup[asset_id]
+        for asset_id in selected_asset_ids
+        if asset_id in asset_lookup
+    ]
+
+    st.write("Please confirm this move.")
+    st.markdown(f"**From:** {from_holder_label}")
+    st.markdown(f"**To:** {to_holder_label}")
+    st.markdown(f"**Items:** {len(selected_assets)}")
+    st.markdown(f"**Note:** {note or '-'}")
+
+    preview_rows = []
+
+    for asset in selected_assets:
+        eq = asset.get("equipment_types") or {}
+        preview_rows.append({
+            "Asset Code": asset.get("asset_code"),
+            "Equipment": eq.get("name"),
+        })
+
+    render_clean_table(pd.DataFrame(preview_rows), "No items selected.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Yes, move items", type="primary", use_container_width=True):
+            batch_id = (
+                "MOVE-"
+                + datetime.now().strftime("%Y%m%d-%H%M%S")
+                + "-"
+                + str(uuid.uuid4())[:6]
+            )
+
+            success_count = 0
+            skipped_items = []
+
+            for asset in selected_assets:
+                latest = (
+                    supabase.table("assets")
+                    .select("*")
+                    .eq("id", asset["id"])
+                    .single()
+                    .execute()
+                    .data
+                )
+
+                is_still_in_from_holder = (
+                    latest["current_holder_type"] == from_holder_type
+                    and latest["current_holder_id"] == from_holder_id
+                )
+
+                if not is_still_in_from_holder:
+                    skipped_items.append(asset["asset_code"])
+                    continue
+
+                # The app no longer uses status in the UI.
+                # Keep this value only for compatibility with the existing database.
+                supabase.table("assets").update({
+                    "current_holder_type": to_holder_type,
+                    "current_holder_id": to_holder_id,
+                    "status": "available"
+                }).eq("id", asset["id"]).execute()
+
+                create_movement_log(
+                    batch_id=batch_id,
+                    asset_id=asset["id"],
+                    action="move",
+                    from_holder_type=from_holder_type,
+                    from_holder_id=from_holder_id,
+                    to_holder_type=to_holder_type,
+                    to_holder_id=to_holder_id,
+                    performed_by=None,
+                    purpose="Move item",
+                    note=note
+                )
+
+                success_count += 1
+
+            reset_selection("move_selected_ids")
+
+            message = f"Move completed: {success_count} item(s). Batch ID: {batch_id}"
+
+            if skipped_items:
+                message += f" Skipped: {', '.join(skipped_items)}"
+
+            go_to_dashboard_with_message(message)
+
+    with col2:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
 
 @st.dialog("Confirm add equipment")
 def add_equipment_confirm_dialog(form_data):
@@ -1425,12 +1928,9 @@ def edit_equipment_dialog(eq, categories, locations):
 
     assets_for_eq = get_assets_by_equipment_type(eq["id"])
     active_assets = [a for a in assets_for_eq if a.get("active") is True]
-    borrowed_assets = [a for a in active_assets if a.get("status") == "borrowed"]
-    available_assets = [a for a in active_assets if a.get("status") == "available"]
+    with_people_assets = [a for a in active_assets if a.get("current_holder_type") == "person"]
 
     st.markdown(f"Active assets: **{len(active_assets)}**")
-    st.markdown(f"Available assets: **{len(available_assets)}**")
-    st.markdown(f"Borrowed assets: **{len(borrowed_assets)}**")
 
     update_owner = st.checkbox(
         "Update owner for all active assets",
@@ -1543,7 +2043,7 @@ def edit_equipment_dialog(eq, categories, locations):
                         "home_location_id": new_home_location_id
                     }
 
-                    if asset.get("status") == "available":
+                    if asset.get("current_holder_type") == "location":
                         update_payload["current_holder_type"] = "location"
                         update_payload["current_holder_id"] = new_home_location_id
 
@@ -1590,8 +2090,6 @@ def edit_equipment_dialog(eq, categories, locations):
 def deactivate_equipment_dialog(eq, active_assets, borrowed_assets):
     st.write("This will hide the equipment type and all its active assets from the app.")
     st.markdown(f"**Equipment:** {eq.get('name')}")
-    st.markdown(f"**Active assets:** {len(active_assets)}")
-    st.markdown(f"**Borrowed assets:** {len(borrowed_assets)}")
 
     if borrowed_assets:
         st.error("Cannot deactivate this equipment because some assets are currently borrowed.")
@@ -1657,13 +2155,14 @@ render_navigation()
 page = st.session_state.page
 
 
+
 # -----------------------------
 # Dashboard
 # -----------------------------
 if page == "Dashboard":
     page_header(
         "Dashboard",
-        "Overview of equipment availability, borrowed items, and current holders.",
+        "Overview of where every lab item currently is.",
         "📊"
     )
 
@@ -1681,100 +2180,134 @@ if page == "Dashboard":
         st.info("No equipment in the system yet. Go to Equipment page to add items.")
     else:
         total_assets = len(df)
-        available_count = int((df["Status"] == "available").sum())
-        borrowed_count = int((df["Status"] == "borrowed").sum())
+        in_locations_count = int((df["Holder Type"] == "location").sum())
+        with_people_count = int((df["Holder Type"] == "person").sum())
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Assets", total_assets)
-        col2.metric("Available", available_count)
-        col3.metric("Borrowed", borrowed_count)
+        col2.metric("At Locations", in_locations_count)
+        col3.metric("With People", with_people_count)
 
-        st.markdown("### Inventory Overview")
-        st.caption("Grouped by equipment type, current holder, and status.")
+        with st.expander("Inventory by Category", expanded=True):
+            st.caption("Grouped by category and equipment type, with current location/holder.")
+            render_inventory_category_view(assets, people, locations)
 
-        summary = (
-            df.groupby(["Equipment", "Current Holder", "Status"], dropna=False)
-            .size()
-            .reset_index(name="Quantity")
-            .sort_values(["Equipment", "Current Holder", "Status"])
-        )
+        with st.expander("Inventory by Location / Holder", expanded=True):
+            st.caption("Shows what equipment is currently stored in each location or held by each person.")
+            render_inventory_by_location_view(assets, people, locations)
 
-        render_clean_table(summary, "No inventory summary yet.")
+        with st.expander("Items with People", expanded=True):
+            st.caption("Items currently with people.")
 
-        st.markdown("### Active Borrowing")
-        st.caption("Who is currently holding lab equipment.")
+            with_people = df[df["Holder Type"] == "person"]
 
-        borrowed = df[df["Status"] == "borrowed"]
+            if with_people.empty:
+                st.success("No items are currently with people.")
+            else:
+                person_summary = (
+                    with_people.groupby(["Current Holder", "Equipment"], dropna=False)
+                    .size()
+                    .reset_index(name="Quantity")
+                    .sort_values(["Current Holder", "Equipment"])
+                )
 
-        if borrowed.empty:
-            st.success("No borrowed items at the moment.")
-        else:
-            person_summary = (
-                borrowed.groupby(["Current Holder", "Equipment"], dropna=False)
+                render_clean_table(person_summary, "No items with people.")
+
+        with st.expander("Table Summary", expanded=False):
+            summary = (
+                df.groupby(["Equipment", "Current Holder", "Holder Type"], dropna=False)
                 .size()
                 .reset_index(name="Quantity")
-                .sort_values(["Current Holder", "Equipment"])
+                .sort_values(["Equipment", "Current Holder", "Holder Type"])
             )
 
-            render_clean_table(person_summary, "No borrowed items.")
+            render_clean_table(summary, "No inventory summary yet.")
 
-        with st.expander("Show individual asset details"):
+        with st.expander("Individual Asset Details", expanded=False):
             render_clean_table(
                 df.sort_values(["Equipment", "Asset Code"]),
                 "No individual asset details."
             )
 
-
 # -----------------------------
-# Checkout
+# Move Items
 # -----------------------------
-elif page == "Checkout":
+elif page == "Move Items":
     page_header(
-        "Checkout Items",
-        "Select equipment groups, choose asset numbers, and confirm checkout.",
-        "📦"
+        "Move Items",
+        "Move equipment from any location or person to another location or person.",
+        "🔁"
     )
 
     people = get_people()
     locations = get_locations()
-    available_assets = get_available_assets()
 
-    if not people:
-        st.warning("Please add people first.")
+    if not people and not locations:
+        st.warning("Please add at least one person or location first.")
         st.stop()
 
-    if not locations:
-        st.warning("Please add locations first.")
-        st.stop()
+    holder_options = {}
 
-    if not available_assets:
-        st.warning("No available assets.")
-        st.stop()
+    for location in locations:
+        holder_options[f"Location — {location['name']}"] = ("location", location["id"], location["name"])
 
-    people_options = {p["name"]: p["id"] for p in people}
+    for person in people:
+        holder_options[f"Person — {person['name']}"] = ("person", person["id"], person["name"])
 
     with st.container(border=True):
-        st.subheader("Checkout Information")
+        st.subheader("Move Information")
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns([1, 1, 1])
 
         with col1:
-            borrower_name = st.selectbox("Borrower", list(people_options.keys()))
+            from_label = st.selectbox(
+                "From",
+                list(holder_options.keys()),
+                key="move_from_holder"
+            )
+            from_holder_type, from_holder_id, from_holder_name = holder_options[from_label]
 
         with col2:
-            purpose = st.text_input("Purpose", placeholder="e.g. OBRIR measurement")
-            note = st.text_area("Note", placeholder="Optional")
+            to_label = st.selectbox(
+                "To",
+                list(holder_options.keys()),
+                key="move_to_holder"
+            )
+            to_holder_type, to_holder_id, to_holder_name = holder_options[to_label]
 
-    st.markdown("### Available Equipment Groups")
+        with col3:
+            note = st.text_input(
+                "Note",
+                placeholder="Optional"
+            )
+
+    if from_holder_type == to_holder_type and from_holder_id == to_holder_id:
+        st.warning("From and To must be different.")
+        st.stop()
+
+    movable_assets = get_assets_by_holder(from_holder_type, from_holder_id)
+
+    valid_move_ids = {asset["id"] for asset in movable_assets}
+    st.session_state.move_selected_ids = [
+        asset_id
+        for asset_id in st.session_state.move_selected_ids
+        if asset_id in valid_move_ids
+    ]
+
+    if not movable_assets:
+        st.info(f"No items found in {from_label}.")
+        st.stop()
+
+    st.markdown(f"### Items in {from_label}")
 
     search = st.text_input(
-        "Search available assets",
+        "Search items to move",
         placeholder="Search by prefix, asset code, name, category, or owner"
     )
 
     filtered_assets = []
 
-    for asset in available_assets:
+    for asset in movable_assets:
         eq = asset.get("equipment_types") or {}
         prefix = get_prefix(asset.get("asset_code", ""))
         text = f"{prefix} {asset.get('asset_code', '')} {eq.get('name', '')} {eq.get('category', '')} {asset.get('owner', '')}".lower()
@@ -1782,47 +2315,54 @@ elif page == "Checkout":
         if search.lower() in text:
             filtered_assets.append(asset)
 
-    st.caption(f"Showing {len(filtered_assets)} available asset(s), grouped by prefix.")
+    st.caption(f"Showing {len(filtered_assets)} asset(s) in this holder.")
 
     with st.container(border=True, height=520):
         render_group_cards(
             filtered_assets,
-            selection_key="checkout_selected_ids",
-            dialog_mode="checkout",
+            selection_key="move_selected_ids",
+            dialog_mode="move",
             people=people,
             locations=locations
         )
 
-    asset_lookup = {asset["id"]: asset for asset in available_assets}
+    asset_lookup = {asset["id"]: asset for asset in movable_assets}
     selected_asset_ids = [
         asset_id
-        for asset_id in st.session_state.checkout_selected_ids
+        for asset_id in st.session_state.move_selected_ids
         if asset_id in asset_lookup
     ]
 
     st.markdown("<div class='selection-box'>", unsafe_allow_html=True)
-    render_selected_summary(selected_asset_ids, asset_lookup, title="Current Checkout Selection")
+    render_selected_summary(
+        selected_asset_ids,
+        asset_lookup,
+        title="Current Move Selection"
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
     col_confirm, col_reset, col_back = st.columns([1, 1, 4])
 
     with col_confirm:
-        if st.button("Confirm Checkout", type="primary", use_container_width=True):
+        if st.button("Confirm Move", type="primary", use_container_width=True):
             if not selected_asset_ids:
                 st.error("Please select at least one item.")
             else:
-                checkout_confirm_dialog(
+                move_confirm_dialog(
                     selected_asset_ids=selected_asset_ids,
                     asset_lookup=asset_lookup,
-                    borrower_name=borrower_name,
-                    borrower_id=people_options[borrower_name],
-                    purpose=purpose,
+                    from_holder_label=from_label,
+                    from_holder_type=from_holder_type,
+                    from_holder_id=from_holder_id,
+                    to_holder_label=to_label,
+                    to_holder_type=to_holder_type,
+                    to_holder_id=to_holder_id,
                     note=note
                 )
 
     with col_reset:
         if st.button("Reset Selection", use_container_width=True):
-            reset_selection("checkout_selected_ids")
+            reset_selection("move_selected_ids")
             st.rerun()
 
     with col_back:
@@ -1831,130 +2371,7 @@ elif page == "Checkout":
             st.rerun()
 
 
-# -----------------------------
-# Return
-# -----------------------------
-elif page == "Return":
-    page_header(
-        "Return Items",
-        "Return borrowed assets back to a selected storage location.",
-        "↩️"
-    )
-
-    people = get_people()
-    locations = get_locations()
-
-    if not people:
-        st.warning("Please add people first.")
-        st.stop()
-
-    if not locations:
-        st.warning("Please add locations first.")
-        st.stop()
-
-    people_options = {p["name"]: p["id"] for p in people}
-    location_options = {l["name"]: l["id"] for l in locations}
-
-    with st.container(border=True):
-        st.subheader("Return Information")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            person_name = st.selectbox("Person Returning Items", list(people_options.keys()))
-            person_id = people_options[person_name]
-
-        with col2:
-            return_location_name = st.selectbox("Return to Location", list(location_options.keys()))
-            return_location_id = location_options[return_location_name]
-
-        note = st.text_area("Note", placeholder="Optional")
-
-    borrowed_assets = get_borrowed_assets_by_person(person_id)
-
-    if not borrowed_assets:
-        st.info(f"{person_name} is not currently holding any items.")
-
-        if st.button("Back to Dashboard"):
-            st.session_state.page = "Dashboard"
-            st.rerun()
-
-        st.stop()
-
-    valid_return_ids = {asset["id"] for asset in borrowed_assets}
-    st.session_state.return_selected_ids = [
-        asset_id
-        for asset_id in st.session_state.return_selected_ids
-        if asset_id in valid_return_ids
-    ]
-
-    st.markdown("### Equipment Held by This Person")
-
-    search = st.text_input(
-        "Search held assets",
-        placeholder="Search by prefix, asset code, name, category, or owner"
-    )
-
-    filtered_assets = []
-
-    for asset in borrowed_assets:
-        eq = asset.get("equipment_types") or {}
-        prefix = get_prefix(asset.get("asset_code", ""))
-        text = f"{prefix} {asset.get('asset_code', '')} {eq.get('name', '')} {eq.get('category', '')} {asset.get('owner', '')}".lower()
-
-        if search.lower() in text:
-            filtered_assets.append(asset)
-
-    st.caption(f"Showing {len(filtered_assets)} held asset(s), grouped by prefix.")
-
-    with st.container(border=True, height=520):
-        render_group_cards(
-            filtered_assets,
-            selection_key="return_selected_ids",
-            dialog_mode="return",
-            people=people,
-            locations=locations
-        )
-
-    asset_lookup = {asset["id"]: asset for asset in borrowed_assets}
-    selected_asset_ids = [
-        asset_id
-        for asset_id in st.session_state.return_selected_ids
-        if asset_id in asset_lookup
-    ]
-
-    st.markdown("<div class='selection-box'>", unsafe_allow_html=True)
-    render_selected_summary(selected_asset_ids, asset_lookup, title="Current Return Selection")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    col_confirm, col_reset, col_back = st.columns([1, 1, 4])
-
-    with col_confirm:
-        if st.button("Confirm Return", type="primary", use_container_width=True):
-            if not selected_asset_ids:
-                st.error("Please select at least one item.")
-            else:
-                return_confirm_dialog(
-                    selected_asset_ids=selected_asset_ids,
-                    asset_lookup=asset_lookup,
-                    person_name=person_name,
-                    person_id=person_id,
-                    return_location_name=return_location_name,
-                    return_location_id=return_location_id,
-                    note=note
-                )
-
-    with col_reset:
-        if st.button("Reset Selection", use_container_width=True):
-            reset_selection("return_selected_ids")
-            st.rerun()
-
-    with col_back:
-        if st.button("Back to Dashboard"):
-            st.session_state.page = "Dashboard"
-            st.rerun()
-
-
+            
 # -----------------------------
 # Equipment
 # -----------------------------
@@ -2112,7 +2529,7 @@ elif page == "Equipment":
             for eq in filtered_equipment:
                 assets_for_eq = get_assets_by_equipment_type(eq["id"])
                 active_assets = [a for a in assets_for_eq if a.get("active") is True]
-                borrowed_assets = [a for a in active_assets if a.get("status") == "borrowed"]
+                with_people_assets = [a for a in active_assets if a.get("current_holder_type") == "person"]
 
                 with st.container(border=True):
                     col_img, col_info, col_action = st.columns([0.8, 3.2, 1.2])
@@ -2125,14 +2542,14 @@ elif page == "Equipment":
 
                         category = eq.get("category") or "No category"
                         status_text = "Active" if eq.get("active") else "Inactive"
-                        borrowed_class = "status-borrowed" if len(borrowed_assets) > 0 else "status-available"
+                        with_people_class = "status-held" if len(with_people_assets) > 0 else ""
 
                         st.markdown(
                             f"""
                             <span class="pill">{escape(category)}</span>
                             <span class="pill-dark">{escape(status_text)}</span>
                             <span class="pill-dark">{len(active_assets)} active</span>
-                            <span class="pill-dark {borrowed_class}">{len(borrowed_assets)} borrowed</span>
+                            <span class="pill-dark {with_people_class}">{len(with_people_assets)} with people</span>
                             """,
                             unsafe_allow_html=True
                         )
@@ -2151,7 +2568,6 @@ elif page == "Equipment":
                                 cols_to_show = [
                                     "asset_code",
                                     "owner",
-                                    "status",
                                     "current_holder_type",
                                     "current_holder_id",
                                     "active",
@@ -2185,7 +2601,7 @@ elif page == "Equipment":
                                 deactivate_equipment_dialog(
                                     eq=eq,
                                     active_assets=active_assets,
-                                    borrowed_assets=borrowed_assets
+                                    borrowed_assets=with_people_assets
                                 )
                         else:
                             st.info("Inactive")
