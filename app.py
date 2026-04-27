@@ -1971,11 +1971,11 @@ def edit_equipment_dialog(eq, categories, locations):
     assets_for_eq = get_assets_by_equipment_type(eq["id"])
     active_assets = [a for a in assets_for_eq if a.get("active") is True]
     with_people_assets = [a for a in active_assets if a.get("current_holder_type") == "person"]
-    available_assets = [a for a in active_assets if a.get("status") == "available"]
+    in_location_assets = [a for a in active_assets if a.get("current_holder_type") == "location"]
 
     st.markdown(f"Active assets: **{len(active_assets)}**")
-    st.markdown(f"Available assets: **{len(available_assets)}**")
-    st.markdown(f"Borrowed assets: **{len(borrowed_assets)}**")
+    st.markdown(f"Currently in locations: **{len(in_location_assets)}**")
+    st.markdown(f"Currently with people: **{len(with_people_assets)}**")
 
     update_owner = st.checkbox(
         "Update owner for all active assets",
@@ -1993,7 +1993,7 @@ def edit_equipment_dialog(eq, categories, locations):
         )
 
     update_home_location = st.checkbox(
-        "Update home/current location for available assets",
+        "Update home location for all active assets",
         key=f"edit_update_location_{eq['id']}"
     )
 
@@ -2009,9 +2009,9 @@ def edit_equipment_dialog(eq, categories, locations):
         new_home_location_id = location_options[new_home_location_name]
 
         st.info(
-            "This updates home_location for active assets. "
-            "Available assets will also move to this location. "
-            "Borrowed assets will not be moved."
+            "This updates the default home location for all active assets. "
+            "Assets currently in a location will also move to this new location. "
+            "Assets currently with a person will stay with that person."
         )
 
     st.divider()
