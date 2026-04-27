@@ -661,6 +661,45 @@ def get_locations():
     )
 
 
+
+
+def get_or_create_unassigned_home_location():
+    """Compatibility helper for assets.home_location_id.
+    New assets may start at a person, but home_location_id must still point to a location.
+    In that case, the app uses this neutral location behind the scenes.
+    """
+    existing = (
+        supabase.table("locations")
+        .select("*")
+        .ilike("name", "Unassigned Home")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if existing:
+        loc = existing[0]
+        if loc.get("active") is False:
+            supabase.table("locations").update({"active": True}).eq("id", loc["id"]).execute()
+        return loc["id"]
+
+    try:
+        response = supabase.table("locations").insert({
+            "name": "Unassigned Home",
+            "type": "System",
+            "active": True
+        }).execute()
+    except Exception:
+        response = supabase.table("locations").insert({
+            "name": "Unassigned Home",
+            "active": True
+        }).execute()
+    return response.data[0]["id"]
+
+
+def reset_add_equipment_form():
+    st.session_state.add_form_version = st.session_state.get("add_form_version", 0) + 1
+
 def get_categories(include_inactive=False):
     query = supabase.table("categories").select("*").order("name")
     if not include_inactive:
@@ -1569,6 +1608,7 @@ def checkout_confirm_dialog(selected_asset_ids, asset_lookup, borrower_name, bor
                 supabase.table("assets").update({
                     "current_holder_type": "person",
                     "current_holder_id": borrower_id,
+                    "status": "borrowed"
                 }).eq("id", asset["id"]).execute()
 
                 create_movement_log(
@@ -1811,7 +1851,7 @@ def add_equipment_confirm_dialog(form_data):
         st.markdown(f"**Equipment:** {form_data['name']}")
         st.markdown(f"**Category:** {form_data['category']}")
         st.markdown(f"**Owner:** {form_data['owner']}")
-        st.markdown(f"**Home location:** {form_data['home_location_name']}")
+        st.markdown(f"**Initial holder:** {form_data['initial_holder_type'].title()} — {form_data['initial_holder_name']}")
         st.markdown(f"**Asset prefix:** {form_data['prefix'].upper()}")
         st.markdown(f"**Quantity:** {form_data['quantity']}")
 
@@ -1830,6 +1870,8 @@ def add_equipment_confirm_dialog(form_data):
 
             eq_id = eq_response.data[0]["id"]
             home_location_id = form_data["home_location_id"]
+            initial_holder_type = form_data["initial_holder_type"]
+            initial_holder_id = form_data["initial_holder_id"]
 
             created_codes = []
 
@@ -1852,8 +1894,8 @@ def add_equipment_confirm_dialog(form_data):
                     "equipment_type_id": eq_id,
                     "owner": form_data["owner"],
                     "home_location_id": home_location_id,
-                    "current_holder_type": "location",
-                    "current_holder_id": home_location_id,
+                    "current_holder_type": initial_holder_type,
+                    "current_holder_id": initial_holder_id,
                     "status": "available",
                 }).execute()
 
@@ -1929,8 +1971,11 @@ def edit_equipment_dialog(eq, categories, locations):
     assets_for_eq = get_assets_by_equipment_type(eq["id"])
     active_assets = [a for a in assets_for_eq if a.get("active") is True]
     with_people_assets = [a for a in active_assets if a.get("current_holder_type") == "person"]
+    available_assets = [a for a in active_assets if a.get("status") == "available"]
 
     st.markdown(f"Active assets: **{len(active_assets)}**")
+    st.markdown(f"Available assets: **{len(available_assets)}**")
+    st.markdown(f"Borrowed assets: **{len(borrowed_assets)}**")
 
     update_owner = st.checkbox(
         "Update owner for all active assets",
@@ -2090,6 +2135,8 @@ def edit_equipment_dialog(eq, categories, locations):
 def deactivate_equipment_dialog(eq, active_assets, borrowed_assets):
     st.write("This will hide the equipment type and all its active assets from the app.")
     st.markdown(f"**Equipment:** {eq.get('name')}")
+    st.markdown(f"**Active assets:** {len(active_assets)}")
+    st.markdown(f"**Borrowed assets:** {len(borrowed_assets)}")
 
     if borrowed_assets:
         st.error("Cannot deactivate this equipment because some assets are currently borrowed.")
@@ -2387,6 +2434,7 @@ elif page == "Equipment":
         del st.session_state.last_equipment_message
 
     locations = get_locations()
+    people = get_people()
     categories = get_categories()
 
     if not locations:
@@ -2398,6 +2446,7 @@ elif page == "Equipment":
         st.stop()
 
     location_options = {l["name"]: l["id"] for l in locations}
+    person_options = {p["name"]: p["id"] for p in people}
     category_names = [c["name"] for c in categories]
 
     tab_add, tab_manage, tab_categories = st.tabs([
@@ -2457,11 +2506,38 @@ elif page == "Equipment":
             col3, col4, col5 = st.columns(3)
 
             with col3:
-                home_location_name = st.selectbox(
-                    "Home Location",
-                    list(location_options.keys()),
-                    key=f"eq_home_location_{form_version}"
+                initial_holder_type_label = st.selectbox(
+                    "Add items to",
+                    ["Location", "Person"],
+                    help="Choose where these new assets currently are. No checkout/return status is needed.",
+                    key=f"eq_initial_holder_type_{form_version}"
                 )
+
+                if initial_holder_type_label == "Location":
+                    initial_holder_name = st.selectbox(
+                        "Location",
+                        list(location_options.keys()),
+                        key=f"eq_initial_location_{form_version}"
+                    )
+                    initial_holder_type = "location"
+                    initial_holder_id = location_options[initial_holder_name]
+                    home_location_id = initial_holder_id
+                else:
+                    if not person_options:
+                        st.warning("Please add at least one person first, or choose Location.")
+                        initial_holder_name = None
+                        initial_holder_type = "person"
+                        initial_holder_id = None
+                        home_location_id = None
+                    else:
+                        initial_holder_name = st.selectbox(
+                            "Person",
+                            list(person_options.keys()),
+                            key=f"eq_initial_person_{form_version}"
+                        )
+                        initial_holder_type = "person"
+                        initial_holder_id = person_options[initial_holder_name]
+                        home_location_id = get_or_create_unassigned_home_location()
 
             with col4:
                 prefix = st.text_input(
@@ -2486,19 +2562,24 @@ elif page == "Equipment":
                 if not name or not prefix:
                     st.error("Please enter Equipment Name and Asset Code Prefix.")
                 else:
-                    form_data = {
-                        "name": name,
-                        "category": category,
-                        "description": description,
-                        "owner": owner,
-                        "home_location_name": home_location_name,
-                        "home_location_id": location_options[home_location_name],
-                        "prefix": prefix,
-                        "quantity": quantity,
-                        "image_data": image_data,
-                    }
+                    if initial_holder_id is None or home_location_id is None:
+                        st.error("Please choose a valid location or person.")
+                    else:
+                        form_data = {
+                            "name": name,
+                            "category": category,
+                            "description": description,
+                            "owner": owner,
+                            "initial_holder_type": initial_holder_type,
+                            "initial_holder_name": initial_holder_name,
+                            "initial_holder_id": initial_holder_id,
+                            "home_location_id": home_location_id,
+                            "prefix": prefix,
+                            "quantity": quantity,
+                            "image_data": image_data,
+                        }
 
-                    add_equipment_confirm_dialog(form_data)
+                        add_equipment_confirm_dialog(form_data)
 
     with tab_manage:
         equipment_types = get_equipment_types(include_inactive=True)
